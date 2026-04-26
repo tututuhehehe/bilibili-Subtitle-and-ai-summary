@@ -23,7 +23,7 @@
     'use strict';
 
     const startTime = performance.now();
-    const version = '3.8.0';
+    const version = GM_info.script.version;
 
     // 配置数据
     let aiConfig = {
