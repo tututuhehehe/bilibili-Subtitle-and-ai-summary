@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         B站字幕获取与AI助手 (沉浸式翻译/总结)
 // @namespace    https://github.com/tututuhehehe/bilibili-Subtitle-and-ai-summary
-// @version      1.0.0  
+// @version      1.1.0
 // @author       李沐恩
-// @description  一键获取B站视频字幕，支持沉浸式AI对话、双模型切换、侧边栏收起、自定义总结Prompt
+// @description  一键获取B站视频字幕，支持沉浸式AI对话、双模型切换、侧边栏收起、自定义总结Prompt，支持阿里云与DeepSeek官方接口切换
 // @match        *://*.bilibili.com/video/*
 // @match        *://*.bilibili.com/bangumi/play/*
 // @icon         https://www.bilibili.com/favicon.ico
@@ -15,8 +15,8 @@
 // @grant        GM_getValue
 // @connect      *
 // @license      MIT
-// @downloadURL https://update.greasyfork.org/scripts/575450/B%E7%AB%99%E5%AD%97%E5%B9%95%E8%8E%B7%E5%8F%96%E4%B8%8EAI%E5%8A%A9%E6%89%8B%20%28%E6%B2%89%E6%B5%B8%E5%BC%8F%E7%BF%BB%E8%AF%91%E6%80%BB%E7%BB%93%29.user.js
-// @updateURL https://update.greasyfork.org/scripts/575450/B%E7%AB%99%E5%AD%97%E5%B9%95%E8%8E%B7%E5%8F%96%E4%B8%8EAI%E5%8A%A9%E6%89%8B%20%28%E6%B2%89%E6%B5%B8%E5%BC%8F%E7%BF%BB%E8%AF%91%E6%80%BB%E7%BB%93%29.meta.js
+// @downloadURL  https://update.greasyfork.org/scripts/575450/B%E7%AB%99%E5%AD%97%E5%B9%95%E8%8E%B7%E5%8F%96%E4%B8%8EAI%E5%8A%A9%E6%89%8B%20%28%E6%B2%89%E6%B5%B8%E5%BC%8F%E7%BF%BB%E8%AF%91%E6%80%BB%E7%BB%93%29.user.js
+// @updateURL    https://update.greasyfork.org/scripts/575450/B%E7%AB%99%E5%AD%97%E5%B9%95%E8%8E%B7%E5%8F%96%E4%B8%8EAI%E5%8A%A9%E6%89%8B%20%28%E6%B2%89%E6%B5%B8%E5%BC%8F%E7%BF%BB%E8%AF%91%E6%80%BB%E7%BB%93%29.meta.js
 // ==/UserScript==
 
 (function() {
@@ -27,10 +27,12 @@
 
     // 配置数据
     let aiConfig = {
+        provider: GM_getValue('ai_provider', 'aliyun'), // 默认 aliyun
         endpoint: GM_getValue('ai_endpoint', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'),
         apiKey: GM_getValue('ai_api_key', ''),
-        model1: GM_getValue('ai_model1', 'qwen-plus'),
-        model2: GM_getValue('ai_model2', 'qwen-turbo'),
+        model1: GM_getValue('ai_model1', 'deepseek-v4-flash'),
+        model2: GM_getValue('ai_model2', 'deepseek-v4-pro'),
+        thinking: GM_getValue('ai_thinking', false), // 默认关闭思考
         prompt: GM_getValue('ai_custom_prompt', '请根据以下视频字幕，提取出核心观点，并用结构化的 Markdown 格式（如标题、列表、加粗重点，必要时可以使用表格）进行详细总结。')
     };
 
@@ -132,6 +134,23 @@
         isRequesting = true;
         document.getElementById('ai-chat-send').disabled = true;
 
+        const payload = {
+            model: selectedModel,
+            messages: messages,
+            stream: true
+        };
+
+        // 根据服务商组装思考模式参数
+        if (aiConfig.provider === 'aliyun') {
+            payload.enable_thinking = aiConfig.thinking;
+        } else if (aiConfig.provider === 'deepseek') {
+            payload.thinking = { type: aiConfig.thinking ? "enabled" : "disabled" };
+        } else {
+            // 自定义厂商，如果包含这两个特征域名，也尝试附加上下文
+            if (aiConfig.endpoint.includes('dashscope')) payload.enable_thinking = aiConfig.thinking;
+            if (aiConfig.endpoint.includes('deepseek.com')) payload.thinking = { type: aiConfig.thinking ? "enabled" : "disabled" };
+        }
+
         GM_xmlhttpRequest({
             method: "POST",
             url: aiConfig.endpoint,
@@ -140,18 +159,15 @@
                 "Authorization": `Bearer ${aiConfig.apiKey}`,
                 "Accept": "text/event-stream"
             },
-            data: JSON.stringify({
-                model: selectedModel,
-                messages: messages,
-                stream: true
-            }),
+            data: JSON.stringify(payload),
             responseType: 'stream',
             onloadstart: async function(response) {
                 try {
                     const reader = response.response.getReader();
                     const decoder = new TextDecoder('utf-8');
                     let buffer = '';
-                    let fullText = '';
+                    let reasoningContent = '';
+                    let mainContent = '';
 
                     while (true) {
                         const { done, value } = await reader.read();
@@ -168,10 +184,37 @@
                                 if (dataStr === '[DONE]') continue;
                                 try {
                                     const data = JSON.parse(dataStr);
-                                    if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-                                        const chunk = data.choices[0].delta.content;
-                                        fullText += chunk;
-                                        onChunk(fullText);
+                                    if (data.choices && data.choices[0].delta) {
+                                        const delta = data.choices[0].delta;
+                                        let updated = false;
+
+                                        // 处理思考过程
+                                        if (delta.reasoning_content) {
+                                            reasoningContent += delta.reasoning_content;
+                                            updated = true;
+                                        }
+                                        // 处理正文内容
+                                        if (delta.content) {
+                                            mainContent += delta.content;
+                                            updated = true;
+                                        }
+
+                                        if (updated) {
+                                            let displayHtml = '';
+                                            if (reasoningContent) {
+                                                // 折叠显示思考过程
+                                                displayHtml += `<details ${mainContent ? '' : 'open'} style="margin-bottom: 8px;">
+                                                    <summary style="color:#aaa;font-size:12px;cursor:pointer;user-select:none;">💭 思考过程</summary>
+                                                    <div style="color:#888;font-size:12px;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px;margin-top:4px;white-space:pre-wrap;">${reasoningContent}</div>
+                                                </details>`;
+                                            }
+                                            if (mainContent) {
+                                                displayHtml += marked.parse(mainContent);
+                                            } else if (reasoningContent) {
+                                                displayHtml += '<span style="color:#888;">AI 深度思考中...</span>';
+                                            }
+                                            onChunk(displayHtml);
+                                        }
                                     }
                                 } catch (e) {}
                             }
@@ -179,7 +222,8 @@
                     }
                     isRequesting = false;
                     document.getElementById('ai-chat-send').disabled = false;
-                    onComplete(fullText);
+                    // onComplete 只保存清理后的正文内容入对话历史
+                    onComplete(mainContent || reasoningContent);
                 } catch (err) {
                     isRequesting = false;
                     document.getElementById('ai-chat-send').disabled = false;
@@ -219,13 +263,13 @@
         chatHistory.push({ role: "user", content: userPrompt });
 
         appendChatBubble('system', '正在阅读视频字幕并生成总结...');
-        const assistantBubble = appendChatBubble('assistant', '<span style="color:#888;">AI 思考中...</span>');
+        const assistantBubble = appendChatBubble('assistant', '<span style="color:#888;">AI 响应中...</span>');
 
         requestAIStream(
             chatHistory,
-            (currentText) => { assistantBubble.innerHTML = marked.parse(currentText); },
-            (fullText) => {
-                chatHistory.push({ role: "assistant", content: fullText });
+            (htmlToDisplay) => { assistantBubble.innerHTML = htmlToDisplay; },
+            (plainTextForHistory) => {
+                chatHistory.push({ role: "assistant", content: plainTextForHistory });
                 document.getElementById('ai-panel-chat').querySelector('.system').textContent = '总结完成，您可以继续提问👇';
             },
             (errMsg) => { assistantBubble.innerHTML = `<span style="color:#f5222d;">❌ ${errMsg}</span>`; }
@@ -243,15 +287,15 @@
         appendChatBubble('user', text);
 
         chatHistory.push({ role: "user", content: text });
-        const assistantBubble = appendChatBubble('assistant', '<span style="color:#888;">思考中...</span>');
+        const assistantBubble = appendChatBubble('assistant', '<span style="color:#888;">AI 响应中...</span>');
 
         const chatContainer = document.getElementById('ai-panel-chat');
         chatContainer.scrollTop = chatContainer.scrollHeight;
 
         requestAIStream(
             chatHistory,
-            (currentText) => { assistantBubble.innerHTML = marked.parse(currentText); },
-            (fullText) => { chatHistory.push({ role: "assistant", content: fullText }); },
+            (htmlToDisplay) => { assistantBubble.innerHTML = htmlToDisplay; },
+            (plainTextForHistory) => { chatHistory.push({ role: "assistant", content: plainTextForHistory }); },
             (errMsg) => { assistantBubble.innerHTML = `<span style="color:#f5222d;">❌ ${errMsg}</span>`; }
         );
     }
@@ -286,20 +330,15 @@
     function createAIPanel() {
         if (document.getElementById('bili-ai-panel')) return;
 
-        // 1. 常驻侧边浮动按钮
         const minTab = document.createElement('div');
         minTab.id = 'bili-ai-minimized';
         minTab.innerHTML = `<span>AI总结</span>`;
         document.body.appendChild(minTab);
 
-        // 点击常驻按钮：探测字幕 -> 打开面板并总结
         minTab.addEventListener('click', () => {
-            ensureSubtitleAndExecuteGlobal(() => {
-                handleAISummaryBtn();
-            });
+            ensureSubtitleAndExecuteGlobal(() => { handleAISummaryBtn(); });
         });
 
-        // 2. 隐藏的 AI 面板
         const panel = document.createElement('div');
         panel.id = 'bili-ai-panel';
         panel.innerHTML = `
@@ -324,14 +363,28 @@
             </div>
 
             <div class="ai-panel-settings" id="ai-panel-settings-container">
-                <div style="margin-bottom: 4px; color: #999;">API 配置 (保存在本地):</div>
-                <input type="text" id="set-endpoint" class="ai-input" value="${aiConfig.endpoint}" placeholder="API Endpoint">
-                <input type="password" id="set-apikey" class="ai-input" value="${aiConfig.apiKey}" placeholder="API Key (sk-...)">
+                <div style="margin-bottom: 4px; color: #999;">服务商与API配置:</div>
+                <div class="ai-settings-row">
+                    <select id="set-provider" class="ai-input" style="width: 38%; padding: 4px;">
+                        <option value="aliyun" ${aiConfig.provider === 'aliyun' ? 'selected' : ''}>阿里云百炼</option>
+                        <option value="deepseek" ${aiConfig.provider === 'deepseek' ? 'selected' : ''}>DeepSeek官方</option>
+                        <option value="custom" ${aiConfig.provider === 'custom' ? 'selected' : ''}>自定义</option>
+                    </select>
+                    <input type="password" id="set-apikey" class="ai-input" style="width: 62%;" value="${aiConfig.apiKey}" placeholder="API Key (sk-...)">
+                </div>
+                <input type="text" id="set-endpoint" class="ai-input" value="${aiConfig.endpoint}" placeholder="自定义 API Endpoint" style="display: ${aiConfig.provider === 'custom' ? 'block' : 'none'};">
+
                 <div class="ai-settings-row">
                     <input type="text" id="set-model1" class="ai-input" value="${aiConfig.model1}" placeholder="主模型">
                     <input type="text" id="set-model2" class="ai-input" value="${aiConfig.model2}" placeholder="备用模型">
                 </div>
-                <div style="margin: 6px 0 4px 0; color: #999;">自定义总结 Prompt:</div>
+                <div style="margin: 4px 0 8px 0;">
+                    <label style="color:#eee; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="set-thinking" ${aiConfig.thinking ? 'checked' : ''}>
+                        开启思考模式 (Reasoning)
+                    </label>
+                </div>
+                <div style="margin: 0 0 4px 0; color: #999;">自定义总结 Prompt:</div>
                 <textarea id="set-prompt" class="ai-input" style="height: 54px; resize: vertical;" placeholder="要求 AI 如何进行总结...">${aiConfig.prompt}</textarea>
                 <button class="ai-chat-send" id="ai-save-btn" style="width:100%; margin-top:4px;">保存配置</button>
             </div>
@@ -342,6 +395,20 @@
             </div>
         `;
         document.body.appendChild(panel);
+
+        // 设置栏：服务商切换事件绑定
+        document.getElementById('set-provider').addEventListener('change', function() {
+            const epInput = document.getElementById('set-endpoint');
+            if (this.value === 'aliyun') {
+                epInput.style.display = 'none';
+                epInput.value = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+            } else if (this.value === 'deepseek') {
+                epInput.style.display = 'none';
+                epInput.value = 'https://api.deepseek.com/chat/completions';
+            } else {
+                epInput.style.display = 'block';
+            }
+        });
 
         // 面板内按键事件
         document.getElementById('ai-panel-close').addEventListener('click', () => {
@@ -364,16 +431,20 @@
         });
 
         document.getElementById('ai-save-btn').addEventListener('click', () => {
+            aiConfig.provider = document.getElementById('set-provider').value;
             aiConfig.endpoint = document.getElementById('set-endpoint').value;
             aiConfig.apiKey = document.getElementById('set-apikey').value;
             aiConfig.model1 = document.getElementById('set-model1').value;
             aiConfig.model2 = document.getElementById('set-model2').value;
+            aiConfig.thinking = document.getElementById('set-thinking').checked;
             aiConfig.prompt = document.getElementById('set-prompt').value;
 
+            GM_setValue('ai_provider', aiConfig.provider);
             GM_setValue('ai_endpoint', aiConfig.endpoint);
             GM_setValue('ai_api_key', aiConfig.apiKey);
             GM_setValue('ai_model1', aiConfig.model1);
             GM_setValue('ai_model2', aiConfig.model2);
+            GM_setValue('ai_thinking', aiConfig.thinking);
             GM_setValue('ai_custom_prompt', aiConfig.prompt);
 
             const select = document.getElementById('ai-model-select');
@@ -416,28 +487,24 @@
 
         showInfoBar('自动加载字幕资源中...', 'info', 1000);
 
-        // 尝试在页面上找第一个字幕语言选项
         let langItem = document.querySelector('.bpx-player-ctrl-subtitle-language-item');
 
-        // 如果菜单没渲染，试着去模拟触碰一下原生的字幕控制图标触发渲染
         if (!langItem) {
             const subToggle = document.querySelector('.bpx-player-ctrl-subtitle');
             if (subToggle) {
                 subToggle.dispatchEvent(new MouseEvent('mouseenter'));
-                // 给它点时间渲染 DOM
                 await new Promise(resolve => setTimeout(resolve, 300));
                 langItem = document.querySelector('.bpx-player-ctrl-subtitle-language-item');
             }
         }
 
         if (langItem) {
-            langItem.click(); // 模拟点击字幕选项以发送网络请求
+            langItem.click();
         } else {
             showInfoBar("未检测到字幕资源，请确认本视频是否带有字幕", "error");
             return;
         }
 
-        // 轮询等待网络请求拦截
         let retries = 20;
         try {
             await new Promise((resolve, reject) => {
@@ -464,7 +531,7 @@
     async function ensureSubtitleAndExecute(itemElement, actionCallback) {
         if (getSubtitleUrls().length === 0) {
             showInfoBar('自动加载字幕URL中...', 'info', 1000);
-            itemElement.click(); // 模拟点击用户所在的那个菜单项
+            itemElement.click();
 
             let retries = 20;
             try {
@@ -490,7 +557,6 @@
         actionCallback();
     }
 
-    // 原生字幕菜单UI注入，现在只保留了【复制】
     function createDownloadInterface(subtitlePanel) {
         function addButtons() {
             const subtitleItems = document.querySelectorAll('.bpx-player-ctrl-subtitle-language-item');
@@ -507,7 +573,7 @@
 
                 const copyBtn = document.createElement('button');
                 copyBtn.textContent = '[复制]';
-                copyBtn.style.cssText = btnStyle; // 因为只剩复制按钮，所以去掉了 margin-left: 4px
+                copyBtn.style.cssText = btnStyle;
                 copyBtn.addEventListener('click', (e) => { e.stopPropagation(); ensureSubtitleAndExecute(item, handleCopySubtitle); });
                 copyBtn.addEventListener('mouseenter', () => copyBtn.style.color = '#00a1d6');
                 copyBtn.addEventListener('mouseleave', () => copyBtn.style.color = 'white');
@@ -527,7 +593,6 @@
         addGlobalStyles();
         setupNetworkInterception();
 
-        // 页面初始化时就直接创建并挂载 AI 侧拉条与隐藏面板
         createAIPanel();
 
         let timeoutId;
