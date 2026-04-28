@@ -25,16 +25,19 @@
     const startTime = performance.now();
     const version = GM_info.script.version;
 
-    // 配置数据
-    let aiConfig = {
-        provider: GM_getValue('ai_provider', 'aliyun'), // 默认 aliyun
-        endpoint: GM_getValue('ai_endpoint', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'),
-        apiKey: GM_getValue('ai_api_key', ''),
-        model1: GM_getValue('ai_model1', 'deepseek-v4-flash'),
-        model2: GM_getValue('ai_model2', 'deepseek-v4-pro'),
-        thinking: GM_getValue('ai_thinking', false), // 默认关闭思考
-        prompt: GM_getValue('ai_custom_prompt', '请根据以下视频字幕，提取出核心观点，并用结构化的 Markdown 格式（如标题、列表、加粗重点，必要时可以使用表格）进行详细总结。')
+    // 配置数据字典
+    const CONFIG_DICT = {
+        provider: { key: 'ai_provider', def: 'aliyun', el: 'set-provider' },
+        endpoint: { key: 'ai_endpoint', def: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', el: 'set-endpoint' },
+        apiKey: { key: 'ai_api_key', def: '', el: 'set-apikey' },
+        model1: { key: 'ai_model1', def: 'deepseek-v4-flash', el: 'set-model1' },
+        model2: { key: 'ai_model2', def: 'deepseek-v4-pro', el: 'set-model2' },
+        thinking: { key: 'ai_thinking', def: false, el: 'set-thinking', isCheckbox: true },
+        prompt: { key: 'ai_custom_prompt', def: '请根据以下视频字幕，提取出核心观点，并用结构化的 Markdown 格式（如标题、列表、加粗重点，必要时可以使用表格）进行详细总结。', el: 'set-prompt' }
     };
+
+    let aiConfig = {};
+    for (let k in CONFIG_DICT) aiConfig[k] = GM_getValue(CONFIG_DICT[k].key, CONFIG_DICT[k].def);
 
     // 状态数据
     let currentSubtitle = "";
@@ -386,7 +389,6 @@
                 <div class="ai-panel-header-actions">
                     <span class="ai-icon-btn" id="ai-setting-toggle" title="设置">⚙️</span>
                     <span class="ai-icon-btn" id="ai-minimize-btn" title="收起到侧边">➖</span>
-                    <span class="ai-icon-btn" id="ai-panel-close" title="彻底关闭">✖</span>
                 </div>
             </div>
 
@@ -443,10 +445,6 @@
         });
 
         // 面板内按键事件
-        document.getElementById('ai-panel-close').addEventListener('click', () => {
-            panel.style.display = 'none';
-            minTab.style.display = 'flex';
-        });
         document.getElementById('ai-minimize-btn').addEventListener('click', () => {
             panel.style.display = 'none';
             minTab.style.display = 'flex';
@@ -463,21 +461,12 @@
         });
 
         document.getElementById('ai-save-btn').addEventListener('click', () => {
-            aiConfig.provider = document.getElementById('set-provider').value;
-            aiConfig.endpoint = document.getElementById('set-endpoint').value;
-            aiConfig.apiKey = document.getElementById('set-apikey').value;
-            aiConfig.model1 = document.getElementById('set-model1').value;
-            aiConfig.model2 = document.getElementById('set-model2').value;
-            aiConfig.thinking = document.getElementById('set-thinking').checked;
-            aiConfig.prompt = document.getElementById('set-prompt').value;
-
-            GM_setValue('ai_provider', aiConfig.provider);
-            GM_setValue('ai_endpoint', aiConfig.endpoint);
-            GM_setValue('ai_api_key', aiConfig.apiKey);
-            GM_setValue('ai_model1', aiConfig.model1);
-            GM_setValue('ai_model2', aiConfig.model2);
-            GM_setValue('ai_thinking', aiConfig.thinking);
-            GM_setValue('ai_custom_prompt', aiConfig.prompt);
+            for (let k in CONFIG_DICT) {
+                const config = CONFIG_DICT[k];
+                const el = document.getElementById(config.el);
+                aiConfig[k] = config.isCheckbox ? el.checked : el.value;
+                GM_setValue(config.key, aiConfig[k]);
+            }
 
             const select = document.getElementById('ai-model-select');
             select.innerHTML = `<option value="${aiConfig.model1}">${aiConfig.model1} (主)</option>`;
@@ -515,6 +504,24 @@
         updateChatSendButtonState();
     }
 
+    // 抽象公共的轮询获取逻辑
+    function waitForSubtitleUrls(retries = 20, interval = 100) {
+        return new Promise((resolve, reject) => {
+            const timer = setInterval(() => {
+                if (getSubtitleUrls().length > 0) {
+                    clearInterval(timer);
+                    resolve();
+                } else {
+                    retries--;
+                    if (retries <= 0) {
+                        clearInterval(timer);
+                        reject(new Error("自动获取字幕超时"));
+                    }
+                }
+            }, interval);
+        });
+    }
+
     // 【全局自动检测】针对外部常驻悬浮窗，如果找不到URL，尝试唤起字幕菜单获取
     async function ensureSubtitleAndExecuteGlobal(actionCallback) {
         if (getSubtitleUrls().length > 0) {
@@ -542,25 +549,11 @@
             return;
         }
 
-        let retries = 20;
         try {
-            await new Promise((resolve, reject) => {
-                const timer = setInterval(() => {
-                    if (getSubtitleUrls().length > 0) {
-                        clearInterval(timer);
-                        resolve();
-                    } else {
-                        retries--;
-                        if (retries <= 0) {
-                            clearInterval(timer);
-                            reject(new Error("自动获取字幕超时，请手动点击一下视频字幕设置。"));
-                        }
-                    }
-                }, 100);
-            });
+            await waitForSubtitleUrls();
             actionCallback();
         } catch (err) {
-            showInfoBar(err.message, 'error');
+            showInfoBar("自动获取字幕超时，请手动点击一下视频字幕设置。", "error");
         }
     }
 
@@ -570,24 +563,10 @@
             showInfoBar('自动加载字幕URL中...', 'info', 1000);
             itemElement.click();
 
-            let retries = 20;
             try {
-                await new Promise((resolve, reject) => {
-                    const timer = setInterval(() => {
-                        if (getSubtitleUrls().length > 0) {
-                            clearInterval(timer);
-                            resolve();
-                        } else {
-                            retries--;
-                            if (retries <= 0) {
-                                clearInterval(timer);
-                                reject(new Error("自动获取字幕超时，请手动点击一下字幕语言。"));
-                            }
-                        }
-                    }, 100);
-                });
+                await waitForSubtitleUrls();
             } catch (err) {
-                showInfoBar(err.message, 'error');
+                showInfoBar("自动获取字幕超时，请手动点击一下字幕语言。", 'error');
                 return;
             }
         }
@@ -626,12 +605,22 @@
         setTimeout(() => observer.disconnect(), 15000);
     }
 
-    function init() {
-        addGlobalStyles();
-        setupNetworkInterception();
+    // 监听 URL 变化，遇到单页跳转时直接刷新页面以重置脚本状态
+    function setupSPARouter() {
+        let lastUrl = location.href;
+        setInterval(() => {
+            if (location.href !== lastUrl) {
+                const isVideoPage = location.href.includes('/video/') || location.href.includes('/bangumi/play/');
+                lastUrl = location.href;
+                
+                if (isVideoPage) {
+                    location.reload();
+                }
+            }
+        }, 1000);
+    }
 
-        createAIPanel();
-
+    function initSubtitleObserver() {
         let timeoutId;
         const checkInterval = setInterval(() => {
             const subtitlePanel = document.querySelector('.bpx-player-ctrl-subtitle-menu-left') ||
@@ -644,11 +633,20 @@
                                   subtitlePanel.closest('.bpx-player-ctrl-subtitle-menu-origin') ||
                                   subtitlePanel.parentElement;
                 createDownloadInterface(actualPanel);
-                console.log(`%c 🎬 B站字幕与AI助手 v${version} %c Cost ${Math.round(performance.now() - startTime)}ms`, "background:#4A90E2;color:white;padding:2px 6px;border-radius:3px 0 0 3px;", "background:#50E3C2;color:#003333;padding:2px 6px;border-radius:0 3px 3px 0;");
             }
         }, 500);
 
         timeoutId = setTimeout(() => clearInterval(checkInterval), 30000);
+    }
+
+    function init() {
+        addGlobalStyles();
+        setupNetworkInterception();
+
+        createAIPanel();
+        initSubtitleObserver();
+        setupSPARouter();
+        console.log(`%c 🎬 B站字幕与AI助手 v${version} %c Cost ${Math.round(performance.now() - startTime)}ms`, "background:#4A90E2;color:white;padding:2px 6px;border-radius:3px 0 0 3px;", "background:#50E3C2;color:#003333;padding:2px 6px;border-radius:0 3px 3px 0;");
     }
 
     if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); }
