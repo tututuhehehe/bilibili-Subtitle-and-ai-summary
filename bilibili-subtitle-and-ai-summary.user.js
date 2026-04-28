@@ -132,7 +132,7 @@
 
         const selectedModel = document.getElementById('ai-model-select').value;
         isRequesting = true;
-        document.getElementById('ai-chat-send').disabled = true;
+        updateChatSendButtonState();
 
         const payload = {
             model: selectedModel,
@@ -221,21 +221,40 @@
                         }
                     }
                     isRequesting = false;
-                    document.getElementById('ai-chat-send').disabled = false;
-                    // onComplete 只保存清理后的正文内容入对话历史
                     onComplete(mainContent || reasoningContent);
+                    updateChatSendButtonState();
                 } catch (err) {
                     isRequesting = false;
-                    document.getElementById('ai-chat-send').disabled = false;
                     onError("流读取中断");
+                    updateChatSendButtonState();
                 }
             },
             onerror: function(err) {
                 isRequesting = false;
-                document.getElementById('ai-chat-send').disabled = false;
                 onError("网络请求失败，请检查配置或网络");
+                updateChatSendButtonState();
             }
         });
+    }
+
+    function updateChatSendButtonState() {
+        const btn = document.getElementById('ai-chat-send');
+        const textarea = document.getElementById('ai-chat-textarea');
+        if (!btn || !textarea) return;
+        
+        if (!aiConfig.apiKey || aiConfig.apiKey.trim() === '') {
+            btn.textContent = '发送';
+            btn.disabled = true;
+            textarea.placeholder = '请先配置 API Key...';
+        } else if (chatHistory.length === 0) {
+            btn.textContent = '总结';
+            btn.disabled = isRequesting;
+            textarea.placeholder = '点击“总结”获取视频内容总结...';
+        } else {
+            btn.textContent = '发送';
+            btn.disabled = isRequesting;
+            textarea.placeholder = '向 AI 提问关于视频的内容...';
+        }
     }
 
     function appendChatBubble(role, contentHTML) {
@@ -278,6 +297,19 @@
 
     function handleSendChat() {
         if (isRequesting) return;
+
+        if (!aiConfig.apiKey || aiConfig.apiKey.trim() === '') {
+            const chatContainer = document.getElementById('ai-panel-chat');
+            chatContainer.innerHTML = '<div class="chat-bubble system" style="color:#ffcc00">⚠️ 请先点击右上角 ⚙️ 配置您的 API Key。</div>';
+            document.getElementById('ai-panel-settings-container').style.display = 'block';
+            return;
+        }
+
+        if (chatHistory.length === 0) {
+            ensureSubtitleAndExecuteGlobal(() => { handleAISummaryBtn(); });
+            return;
+        }
+
         const inputEl = document.getElementById('ai-chat-textarea');
         const text = inputEl.value.trim();
         if (!text) return;
@@ -453,6 +485,8 @@
                 select.innerHTML += `<option value="${aiConfig.model2}">${aiConfig.model2} (备)</option>`;
             }
 
+            updateChatSendButtonState();
+
             const btn = document.getElementById('ai-save-btn');
             btn.textContent = '已保存！';
             btn.style.background = '#52c41a';
@@ -476,6 +510,9 @@
             this.style.height = '36px';
             this.style.height = (this.scrollHeight) + 'px';
         });
+
+        // 初始化按钮状态
+        updateChatSendButtonState();
     }
 
     // 【全局自动检测】针对外部常驻悬浮窗，如果找不到URL，尝试唤起字幕菜单获取
