@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         B站字幕获取与AI助手 (沉浸式翻译/总结)
 // @namespace    https://github.com/tututuhehehe/bilibili-Subtitle-and-ai-summary
-// @version      1.1.0
-// @author       李沐恩
+// @version      1.1.1
+// @author       limoon
 // @description  一键获取B站视频字幕，支持沉浸式AI对话、双模型切换、侧边栏收起、自定义总结Prompt，支持阿里云与DeepSeek官方接口切换
 // @match        *://*.bilibili.com/video/*
 // @match        *://*.bilibili.com/bangumi/play/*
@@ -122,7 +122,29 @@
 
     function showInfoBar(m,t='info',d=3000){const e=document.querySelector('.bilibili-subtitle-infobar');if(e)e.remove();const i=document.createElement('div');i.className=`bilibili-subtitle-infobar ${t}`;i.textContent=m;document.body.appendChild(i);if(d>0){setTimeout(()=>{if(i.parentNode){i.style.opacity='0';i.style.transform='translate(-50%, -50%) scale(0.9)';setTimeout(()=>i.remove(),300);}},d);}return i;}
     function setupNetworkInterception(){const s=document.createElement('script');s.textContent=`(function(){window._biliSubtitleUrls=window._biliSubtitleUrls||[];const o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(typeof u==='string'&&(u.includes('subtitle')||u.includes('ai_subtitle')))window._biliSubtitleUrls.push(u);return o.apply(this,arguments);};const f=window.fetch;window.fetch=function(u,op){let r=typeof u==='string'?u:(u&&u.url?u.url:'');if(r&&(r.includes('subtitle')||r.includes('ai_subtitle')))window._biliSubtitleUrls.push(r);return f.apply(this,arguments);};})();`;(document.head||document.documentElement).appendChild(s);s.remove();}
-    function getSubtitleUrls(){const r=[];document.querySelectorAll('script').forEach(s=>{const c=s.textContent;if(!c)return;const u=c.match(/https?:\/\/[^\s"]*subtitle\/[^\s"]*\.json\?auth_key=[^\s"]*/g);if(u)r.push(...u);const a=c.match(/https?:\/\/[^\s"]*ai_subtitle\/[^\s"]*\?auth_key=[^\s"]*/g);if(a)r.push(...a);});if(typeof unsafeWindow!=='undefined'&&unsafeWindow._biliSubtitleUrls)r.push(...unsafeWindow._biliSubtitleUrls);else if(window._biliSubtitleUrls)r.push(...window._biliSubtitleUrls);return[...new Set(r)].filter(url=>url&&(url.includes('subtitle')||url.includes('ai_subtitle'))&&url.includes('auth_key'));}
+    let cachedScriptSubtitleUrls = null;
+    function getSubtitleUrls() {
+        const r = [];
+        if (!cachedScriptSubtitleUrls) {
+            cachedScriptSubtitleUrls = [];
+            document.querySelectorAll('script').forEach(s => {
+                const c = s.textContent;
+                if (!c) return;
+                const u = c.match(/https?:\/\/[^\s"]*subtitle\/[^\s"]*\.json\?auth_key=[^\s"]*/g);
+                if (u) cachedScriptSubtitleUrls.push(...u);
+                const a = c.match(/https?:\/\/[^\s"]*ai_subtitle\/[^\s"]*\?auth_key=[^\s"]*/g);
+                if (a) cachedScriptSubtitleUrls.push(...a);
+            });
+        }
+        r.push(...cachedScriptSubtitleUrls);
+
+        if (typeof unsafeWindow !== 'undefined' && unsafeWindow._biliSubtitleUrls) {
+            r.push(...unsafeWindow._biliSubtitleUrls);
+        } else if (window._biliSubtitleUrls) {
+            r.push(...window._biliSubtitleUrls);
+        }
+        return [...new Set(r)].filter(url => url && (url.includes('subtitle') || url.includes('ai_subtitle')) && url.includes('auth_key'));
+    }
     function getSubtitleBody(d){if(d&&d.body)return d.body;if(d&&d.data&&d.data.body)return d.data.body;throw new Error('无法解析字幕数据');}
     function fetchSubtitleText(){return new Promise((res,rej)=>{const u=getSubtitleUrls();if(u.length===0)return rej(new Error('未找到字幕'));let url = u[u.length - 1];if(url.startsWith('//'))url='https:'+url;window.fetch(url).then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json();}).then(d=>res(getSubtitleBody(d).map(i=>i.content).join('\n'))).catch(rej);});}
     function handleCopySubtitle(){showInfoBar('正在提取...','info',0);fetchSubtitleText().then(t=>{document.querySelector('.bilibili-subtitle-infobar.info')?.remove();GM_setClipboard(t,'text');showInfoBar('✅ 已复制！','success',2500);}).catch(e=>{document.querySelector('.bilibili-subtitle-infobar.info')?.remove();showInfoBar('提取失败: '+e.message,'error');});}
@@ -605,19 +627,35 @@
         setTimeout(() => observer.disconnect(), 15000);
     }
 
-    // 监听 URL 变化，遇到单页跳转时直接刷新页面以重置脚本状态
+    // 监听 URL 变化，采用国际通用的 History API 拦截方案，遇到单页跳转时刷新页面以重置脚本状态
     function setupSPARouter() {
         let lastUrl = location.href;
-        setInterval(() => {
-            if (location.href !== lastUrl) {
-                const isVideoPage = location.href.includes('/video/') || location.href.includes('/bangumi/play/');
-                lastUrl = location.href;
-                
-                if (isVideoPage) {
-                    location.reload();
+        
+        const checkUrlChange = () => {
+            setTimeout(() => {
+                if (location.href !== lastUrl) {
+                    const isVideoPage = location.href.includes('/video/') || location.href.includes('/bangumi/play/');
+                    lastUrl = location.href;
+                    if (isVideoPage) {
+                        location.reload();
+                    }
                 }
-            }
-        }, 1000);
+            }, 100);
+        };
+
+        const originalPushState = history.pushState;
+        history.pushState = function() {
+            originalPushState.apply(this, arguments);
+            checkUrlChange();
+        };
+
+        const originalReplaceState = history.replaceState;
+        history.replaceState = function() {
+            originalReplaceState.apply(this, arguments);
+            checkUrlChange();
+        };
+
+        window.addEventListener('popstate', checkUrlChange);
     }
 
     function initSubtitleObserver() {
