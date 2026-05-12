@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         微信公众号文章 AI 助手 (沉浸式总结/对话)
-// @namespace    https://github.com/tututuhehehe/wx-article-ai-summary
+// @namespace    https://github.com/tututuhehehe/ai-web-summary
 // @version      1.0.0
-// @author       limoon (Modified)
+// @author       limoon 
 // @description  一键获取微信公众号文章内容，支持沉浸式AI对话、双模型切换、侧边栏收起、自定义总结Prompt，支持阿里云与DeepSeek官方接口切换
 // @match        *://mp.weixin.qq.com/s/*
 // @icon         https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico
