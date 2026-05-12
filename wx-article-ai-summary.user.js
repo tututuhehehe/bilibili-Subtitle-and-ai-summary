@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         微信公众号文章 AI 助手 (沉浸式总结/对话)
 // @namespace    https://github.com/tututuhehehe/ai-web-summary
-// @version      1.0.0
+// @version      1.1.0
 // @author       limoon 
 // @description  一键获取微信公众号文章内容，支持沉浸式AI对话、双模型切换、侧边栏收起、自定义总结Prompt，支持阿里云与DeepSeek官方接口切换
 // @match        *://mp.weixin.qq.com/s/*
@@ -61,58 +61,84 @@
                 background-color: #1e1e20; border: 1px solid #333; border-right: none; border-radius: 12px 0 0 12px;
                 box-shadow: -5px 5px 15px rgba(0,0,0,0.5); z-index: 2147483646; display: flex;
                 flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;
+                box-sizing: border-box; user-select: none;
             }
             #wx-ai-minimized:hover { background-color: #2a2a2b; width: 45px; }
-            #wx-ai-minimized span { color: #07c160; font-size: 14px; font-weight: bold; writing-mode: vertical-lr; letter-spacing: 4px; text-align: center;}
+            #wx-ai-minimized span { color: #07c160; font-size: 14px; font-weight: bold; writing-mode: vertical-lr; letter-spacing: 4px; text-align: center; line-height: 1.2;}
 
             #wx-ai-panel {
                 position: fixed; right: 20px; top: 80px; width: 420px; height: 680px;
+                max-width: calc(100vw - 40px); max-height: calc(100vh - 110px);
                 background-color: #1e1e20; border: 1px solid #333; border-radius: 12px;
                 box-shadow: 0 10px 40px rgba(0,0,0,0.6); z-index: 2147483646; display: none;
-                flex-direction: column; color: #eee; font-family: sans-serif;
+                flex-direction: column; color: #eee; font-family: Arial, "Microsoft YaHei", sans-serif;
+                box-sizing: border-box; overflow: hidden; isolation: isolate; line-height: normal; text-align: left;
             }
-            .ai-panel-header {
+            #wx-ai-panel, #wx-ai-panel * { box-sizing: border-box; }
+            #wx-ai-panel .ai-panel-header {
                 display: flex; justify-content: space-between; align-items: center;
                 padding: 10px 16px; border-bottom: 1px solid #333; background: #252528; border-radius: 12px 12px 0 0;
+                flex: 0 0 auto; min-height: 45px; gap: 10px;
             }
-            .ai-panel-header-left { display: flex; align-items: center; gap: 8px; }
-            .ai-panel-title { font-size: 15px; font-weight: bold; color: #07c160; }
-            .ai-model-select { background: #1e1e20; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 2px 6px; font-size: 12px; outline: none; cursor: pointer;}
-            .ai-refresh-btn { cursor: pointer; color: #07c160; font-size: 14px; transition: transform 0.3s; }
-            .ai-refresh-btn:hover { transform: rotate(180deg); }
+            #wx-ai-panel .ai-panel-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+            #wx-ai-panel .ai-panel-title { font-size: 15px; font-weight: bold; color: #07c160; white-space: nowrap; line-height: 1.2; }
+            #wx-ai-panel .ai-model-select { max-width: 210px; background: #1e1e20; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 2px 6px; font-size: 12px; line-height: 1.4; outline: none; cursor: pointer;}
+            #wx-ai-panel .ai-refresh-btn { cursor: pointer; color: #07c160; font-size: 14px; line-height: 1; transition: transform 0.3s; flex: 0 0 auto; }
+            #wx-ai-panel .ai-refresh-btn:hover { transform: rotate(180deg); }
 
-            .ai-panel-header-actions { display: flex; align-items: center; gap: 12px; }
-            .ai-icon-btn { cursor: pointer; color: #999; font-size: 16px; transition: color 0.2s; }
-            .ai-icon-btn:hover { color: #fff; }
+            #wx-ai-panel .ai-panel-header-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+            #wx-ai-panel .ai-icon-btn { cursor: pointer; color: #999; font-size: 16px; line-height: 1; transition: color 0.2s; }
+            #wx-ai-panel .ai-icon-btn:hover { color: #fff; }
 
-            .ai-panel-chat { flex: 1; padding: 16px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; }
-            .chat-bubble { padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.6; word-wrap: break-word; overflow-wrap: anywhere; box-sizing: border-box; }
-            .chat-bubble.user { max-width: 82%; background: #07c160; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
-            .chat-bubble.assistant { width: 100%; max-width: 100%; background: #2a2a2b; color: #d1d5db; align-self: stretch; border-bottom-left-radius: 2px; border: 1px solid #333; overflow: visible;}
-            .chat-bubble.system { background: transparent; color: #888; align-self: center; font-size: 12px; text-align: center; }
+            #wx-ai-panel .ai-panel-chat { flex: 1 1 auto; min-height: 0; padding: 16px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; }
+            #wx-ai-panel .chat-bubble { position: relative; flex: 0 0 auto; padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.6; word-wrap: break-word; overflow-wrap: anywhere; box-sizing: border-box; min-height: 0; max-height: none; }
+            #wx-ai-panel .chat-bubble.user { max-width: 82%; background: #07c160; color: white; align-self: flex-end; border-bottom-right-radius: 2px; white-space: pre-wrap; }
+            #wx-ai-panel .chat-bubble.assistant { display: flow-root; width: 100%; max-width: 100%; min-width: 0; background: #2a2a2b; color: #d1d5db; align-self: stretch; border-bottom-left-radius: 2px; border: 1px solid #333; overflow: hidden;}
+            #wx-ai-panel .chat-bubble.system { background: transparent; color: #888; align-self: center; font-size: 12px; text-align: center; }
 
             /* Markdown 样式适配 */
-            .chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3 { color: #fff; margin-top: 0; margin-bottom: 8px; font-size: 15px; }
-            .chat-bubble.assistant p { margin: 0 0 8px 0; }
-            .chat-bubble.assistant p:last-child { margin: 0; }
-            .chat-bubble.assistant ul, .chat-bubble.assistant ol { margin: 0 0 8px 0; padding-left: 20px; }
-            .chat-bubble.assistant strong { color: #50E3C2; }
-            .chat-bubble.assistant code { background: #1e1e20; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 13px; }
-            .chat-bubble.assistant pre { background: #1a1a1b; padding: 10px; border-radius: 6px; overflow-x: auto; overflow-y: hidden; border: 1px solid #111; margin: 8px 0; max-width: 100%; box-sizing: border-box;}
-            .chat-bubble.assistant table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; color: #eee; table-layout: fixed; }
-            .chat-bubble.assistant th, .chat-bubble.assistant td { border: 1px solid #444; padding: 6px 10px; text-align: left; }
-            .chat-bubble.assistant th { background-color: #1a1a1b; color: #07c160; font-weight: bold; }
-            .chat-bubble.assistant tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.03); }
+            #wx-ai-panel .chat-bubble.assistant * { max-width: 100%; box-sizing: border-box; float: none; clear: none; }
+            #wx-ai-panel .chat-bubble.assistant h1, #wx-ai-panel .chat-bubble.assistant h2, #wx-ai-panel .chat-bubble.assistant h3 { display: block; color: #fff; margin-top: 0; margin-bottom: 8px; font-size: 15px; line-height: 1.4; font-weight: 700; text-align: left; }
+            #wx-ai-panel .chat-bubble.assistant p { display: block; margin: 0 0 8px 0; color: inherit; font-size: inherit; line-height: inherit; text-align: left; text-indent: 0; letter-spacing: 0; }
+            #wx-ai-panel .chat-bubble.assistant p:last-child { margin: 0; }
+            #wx-ai-panel .chat-bubble.assistant blockquote { display: block; margin: 8px 0; padding: 8px 0 8px 12px; border-left: 3px solid rgba(7, 193, 96, 0.85); color: #d1d5db; background: rgba(255, 255, 255, 0.03); overflow: hidden; }
+            #wx-ai-panel .chat-bubble.assistant blockquote p { margin: 0 0 8px 0; }
+            #wx-ai-panel .chat-bubble.assistant blockquote p:last-child { margin-bottom: 0; }
+            #wx-ai-panel .chat-bubble.assistant ul, #wx-ai-panel .chat-bubble.assistant ol { display: block; margin: 0 0 8px 0; padding-left: 20px; overflow: visible; list-style-position: outside; }
+            #wx-ai-panel .chat-bubble.assistant ul { list-style-type: disc; }
+            #wx-ai-panel .chat-bubble.assistant ol { list-style-type: decimal; }
+            #wx-ai-panel .chat-bubble.assistant li { display: list-item; margin: 2px 0; padding-left: 0; color: inherit; font-size: inherit; line-height: inherit; text-align: left; }
+            #wx-ai-panel .chat-bubble.assistant strong { color: #50E3C2; }
+            #wx-ai-panel .chat-bubble.assistant code { background: #1e1e20; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 13px; white-space: pre-wrap; }
+            #wx-ai-panel .chat-bubble.assistant pre { display: block; background: #1a1a1b; padding: 10px; border-radius: 6px; overflow-x: auto; overflow-y: hidden; border: 1px solid #111; margin: 8px 0; max-width: 100%; box-sizing: border-box;}
+            #wx-ai-panel .chat-bubble.assistant pre code { display: block; white-space: pre; background: transparent; padding: 0; }
+            #wx-ai-panel .chat-bubble.assistant table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; color: #eee; table-layout: fixed; }
+            #wx-ai-panel .chat-bubble.assistant th, #wx-ai-panel .chat-bubble.assistant td { border: 1px solid #444; padding: 6px 10px; text-align: left; word-break: break-word; }
+            #wx-ai-panel .chat-bubble.assistant th { background-color: #1a1a1b; color: #07c160; font-weight: bold; }
+            #wx-ai-panel .chat-bubble.assistant tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.03); }
+            #wx-ai-panel .chat-bubble.assistant img, #wx-ai-panel .chat-bubble.assistant video { display: block; height: auto; margin: 8px 0; border-radius: 6px; }
+            #wx-ai-panel .chat-bubble.assistant details { display: block; margin: 0 0 8px 0; overflow: hidden; }
+            #wx-ai-panel .chat-bubble.assistant summary { display: list-item; }
 
-            .ai-panel-input-area { padding: 12px; border-top: 1px solid #333; background: #252528; display: flex; gap: 8px; border-radius: 0 0 12px 12px;}
-            .ai-chat-textarea { flex: 1; height: 36px; min-height: 36px; max-height: 100px; background: #1e1e20; border: 1px solid #444; color: white; border-radius: 6px; padding: 8px; font-size: 13px; resize: none; outline: none; font-family: inherit;}
-            .ai-chat-send { background: #07c160; color: white; border: none; padding: 0 16px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s;}
-            .ai-chat-send:hover { background: #06ad56; }
-            .ai-chat-send:disabled { background: #444; color: #888; cursor: not-allowed; }
+            #wx-ai-panel .ai-panel-input-area { flex: 0 0 auto; padding: 12px; border-top: 1px solid #333; background: #252528; display: flex; gap: 8px; border-radius: 0 0 12px 12px;}
+            #wx-ai-panel .ai-chat-textarea { flex: 1; height: 36px; min-height: 36px; max-height: 100px; background: #1e1e20; border: 1px solid #444; color: white; border-radius: 6px; padding: 8px; font-size: 13px; line-height: 1.4; resize: none; outline: none; font-family: inherit;}
+            #wx-ai-panel .ai-chat-send { background: #07c160; color: white; border: none; padding: 0 16px; min-width: 58px; min-height: 36px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; line-height: 1; transition: background 0.2s;}
+            #wx-ai-panel .ai-chat-send:hover { background: #06ad56; }
+            #wx-ai-panel .ai-chat-send:disabled { background: #444; color: #888; cursor: not-allowed; }
 
-            .ai-panel-settings { position: absolute; bottom: 61px; left: 0; right: 0; padding: 16px; border-top: 1px solid #333; font-size: 12px; background: rgba(37, 37, 40, 0.95); backdrop-filter: blur(10px); display: none; z-index: 10; border-radius: 0 0 12px 12px;}
-            .ai-input { width: 100%; box-sizing: border-box; margin-top: 4px; margin-bottom: 8px; padding: 6px; background: #1e1e20; border: 1px solid #444; color: white; border-radius: 4px; font-family: inherit;}
-            .ai-settings-row { display: flex; gap: 8px; }
+            #wx-ai-panel .ai-panel-settings { position: absolute; bottom: 61px; left: 0; right: 0; max-height: calc(100% - 106px); overflow-y: auto; padding: 16px; border-top: 1px solid #333; font-size: 12px; background: rgba(37, 37, 40, 0.95); backdrop-filter: blur(10px); display: none; z-index: 10; border-radius: 0 0 12px 12px;}
+            #wx-ai-panel .ai-input { width: 100%; box-sizing: border-box; margin-top: 4px; margin-bottom: 8px; padding: 6px; background: #1e1e20; border: 1px solid #444; color: white; border-radius: 4px; font-family: inherit; font-size: 12px; line-height: 1.4; outline: none;}
+            #wx-ai-panel .ai-settings-row { display: flex; gap: 8px; min-width: 0; }
+
+            @media (max-width: 520px) {
+                #wx-ai-panel {
+                    right: 10px; left: 10px; top: 60px; width: auto; height: calc(100vh - 90px);
+                    max-width: none; max-height: none;
+                }
+                #wx-ai-panel .ai-model-select { max-width: 150px; }
+                #wx-ai-panel .ai-panel-header { padding: 10px 12px; }
+                #wx-ai-panel .ai-panel-chat { padding: 12px; gap: 12px; }
+            }
         `;
         document.head.appendChild(style);
     }
@@ -312,7 +338,10 @@
 
         requestAIStream(
             chatHistory,
-            (htmlToDisplay) => { assistantBubble.innerHTML = htmlToDisplay; },
+            (htmlToDisplay) => {
+                assistantBubble.innerHTML = htmlToDisplay;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            },
             (plainTextForHistory) => {
                 chatHistory.push({ role: "assistant", content: plainTextForHistory });
                 document.getElementById('ai-panel-chat').querySelector('.system').textContent = '总结完成，您可以继续提问👇';
@@ -352,7 +381,10 @@
 
         requestAIStream(
             chatHistory,
-            (htmlToDisplay) => { assistantBubble.innerHTML = htmlToDisplay; },
+            (htmlToDisplay) => {
+                assistantBubble.innerHTML = htmlToDisplay;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            },
             (plainTextForHistory) => { chatHistory.push({ role: "assistant", content: plainTextForHistory }); },
             (errMsg) => { assistantBubble.innerHTML = `<span style="color:#f5222d;">❌ ${errMsg}</span>`; }
         );
