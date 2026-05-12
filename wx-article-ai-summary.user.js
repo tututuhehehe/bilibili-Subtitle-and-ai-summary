@@ -85,10 +85,10 @@
             .ai-icon-btn { cursor: pointer; color: #999; font-size: 16px; transition: color 0.2s; }
             .ai-icon-btn:hover { color: #fff; }
 
-            .ai-panel-chat { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
-            .chat-bubble { max-width: 92%; padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.6; word-wrap: break-word; overflow-x: auto; }
-            .chat-bubble.user { background: #07c160; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
-            .chat-bubble.assistant { background: #2a2a2b; color: #d1d5db; align-self: flex-start; border-bottom-left-radius: 2px; border: 1px solid #333;}
+            .ai-panel-chat { flex: 1; padding: 16px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; }
+            .chat-bubble { padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.6; word-wrap: break-word; overflow-wrap: anywhere; box-sizing: border-box; }
+            .chat-bubble.user { max-width: 82%; background: #07c160; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
+            .chat-bubble.assistant { width: 100%; max-width: 100%; background: #2a2a2b; color: #d1d5db; align-self: stretch; border-bottom-left-radius: 2px; border: 1px solid #333; overflow: visible;}
             .chat-bubble.system { background: transparent; color: #888; align-self: center; font-size: 12px; text-align: center; }
 
             /* Markdown 样式适配 */
@@ -98,8 +98,8 @@
             .chat-bubble.assistant ul, .chat-bubble.assistant ol { margin: 0 0 8px 0; padding-left: 20px; }
             .chat-bubble.assistant strong { color: #50E3C2; }
             .chat-bubble.assistant code { background: #1e1e20; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 13px; }
-            .chat-bubble.assistant pre { background: #1a1a1b; padding: 10px; border-radius: 6px; overflow-x: auto; border: 1px solid #111; margin: 8px 0;}
-            .chat-bubble.assistant table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; color: #eee; }
+            .chat-bubble.assistant pre { background: #1a1a1b; padding: 10px; border-radius: 6px; overflow-x: auto; overflow-y: hidden; border: 1px solid #111; margin: 8px 0; max-width: 100%; box-sizing: border-box;}
+            .chat-bubble.assistant table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; color: #eee; table-layout: fixed; }
             .chat-bubble.assistant th, .chat-bubble.assistant td { border: 1px solid #444; padding: 6px 10px; text-align: left; }
             .chat-bubble.assistant th { background-color: #1a1a1b; color: #07c160; font-weight: bold; }
             .chat-bubble.assistant tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.03); }
